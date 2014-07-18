@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("com.ParttimeSoftware.SQL.BulkUpdate.Test")]
+[assembly: AssemblyTitle("com.ParttimeSoftware.SQL.Console")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("com.ParttimeSoftware.SQL.BulkUpdate.Test")]
+[assembly: AssemblyProduct("com.ParttimeSoftware.SQL.Console")]
 [assembly: AssemblyCopyright("Copyright ©  2014")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
-[assembly: Guid("ab788557-d270-4d82-9494-cde806c660d4")]
+[assembly: Guid("b09d66d4-c792-4da3-b418-62b616279e9c")]
 
 // Version information for an assembly consists of the following four values:
 //
