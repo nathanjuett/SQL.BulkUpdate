@@ -9,6 +9,20 @@ namespace com.ParttimeSoftware.SQL.BulkUpdate.Test
     [TestClass]
     public class UpdateTests
     {
+        [TestInitialize()]
+        public void InitTest()
+        {
+            EF.Context db = new EF.Context();
+            db.Database.ExecuteSqlCommand("truncate table users");
+
+        }
+        [TestCleanup]
+        public void CleanupTest()
+        {
+            EF.Context db = new EF.Context();
+            db.Database.ExecuteSqlCommand("truncate table users");
+
+        }
         [TestMethod]
         public void TestAddUser()
         {
@@ -28,37 +42,36 @@ namespace com.ParttimeSoftware.SQL.BulkUpdate.Test
         public void TestInsert()
         {
             List<EF.User> users = new List<EF.User>();
-            
-            using (Bulk<EF.User> bulkuser = Bulk<EF.User>.BulkInsertOnly())
+
+            using (Bulk<EF.Context, EF.User> bulkuser = Bulk<EF.Context, EF.User>.BulkInsertOnly())
             {
                 for (int i = 0; i < 1000; i++)
                 {
                     Guid value = Guid.NewGuid();
                     bulkuser.AddToQueue(new EF.User() { Name = value.ToString(), Value = value.ToString() });
                 }
-                bulkuser.Complete();
             }
+
             EF.Context db = new EF.Context();
             Assert.AreEqual(1000, db.User.Count());
-            db.Database.ExecuteSqlCommand("truncate table users");
         }
         [TestMethod]
-        public void TestInsertEarlyExitDisposeTest()
+        public void TestInsertThenAbort()
         {
             List<EF.User> users = new List<EF.User>();
-
-            using (Bulk<EF.User> bulkuser = Bulk<EF.User>.BulkInsertOnly())
+            using (Bulk<EF.Context, EF.User> bulkuser = Bulk<EF.Context, EF.User>.BulkInsertOnly())
             {
-                for (int i = 0; i < 1000; i++)
+                for (int i = 0; i < 100000; i++)
                 {
                     Guid value = Guid.NewGuid();
                     bulkuser.AddToQueue(new EF.User() { Name = value.ToString(), Value = value.ToString() });
                 }
-             }
-            Assert.IsTrue(true);
+                bulkuser.Abort();
+            }
+
             EF.Context db = new EF.Context();
-            Assert.AreEqual(1000, db.User.Count());
-            db.Database.ExecuteSqlCommand("truncate table users");
+            Assert.IsTrue(100000 > db.User.Count());
+ 
         }
     }
 }

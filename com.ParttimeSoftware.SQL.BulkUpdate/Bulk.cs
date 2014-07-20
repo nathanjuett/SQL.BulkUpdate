@@ -6,20 +6,46 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Data.SqlClient;
-using com.ParttimeSoftware.SQL.BulkUpdate.EF;
+using com.ParttimeSoftware.SQL.BulkUpdate;
+using System.Data.Entity;
+using System.Data.Entity.Core.Objects;
+using System.Data.Entity.Infrastructure;
+using System.Text.RegularExpressions;
 
 namespace com.ParttimeSoftware.SQL.BulkUpdate
 {
+    public static class EFHelper
+    {
+      public static string GetTableName<T>(this DbContext context) where T : class
+    {
+        ObjectContext objectContext = ((IObjectContextAdapter)context).ObjectContext;
+
+        return objectContext.GetTableName<T>();
+    }
+
+    public static string GetTableName<T>(this ObjectContext context) where T : class
+    {
+
+        string sql = context.CreateObjectSet<T>().ToTraceString();
+        Regex regex = new Regex(@"FROM\s+(?<table>.+)\s+AS");
+        Match match = regex.Match(sql);
+
+        string table = match.Groups["table"].Value;
+        return table;
+    }
+}
 
 
-    public class Bulk<T> : IDisposable
-        where T : class
+
+    public class Bulk<Tcontext, Tclass> : IDisposable
+        where Tcontext : DbContext, new()
+        where Tclass : class
     {
         ManualResetEvent Wait = null;
         ManualResetEvent WaitDrain = null;
         int Batch = 1000;
         int BatchDrain = 10000;
-        ConcurrentQueue<T> Queue = new ConcurrentQueue<T>();
+        ConcurrentQueue<Tclass> Queue = new ConcurrentQueue<Tclass>();
         Thread UploadThread;
         bool Exit = false;
         bool InsertOnly = false;
@@ -31,28 +57,27 @@ namespace com.ParttimeSoftware.SQL.BulkUpdate
             UploadThread = new Thread(new ThreadStart(Process));
             UploadThread.Start();
         }
-        public void AddToQueue(T item)
+        public void AddToQueue(Tclass item)
         {
             Queue.Enqueue(item);
         }
-        public void Complete()
+        private void Complete()
         {
             Wait.Set();
             Completed = true;
             WaitDrain.WaitOne();
-
         }
-        public static Bulk<T> BulkInsert()
+        public static Bulk<Tcontext, Tclass> BulkInsert()
         {
-            return new Bulk<T>();
+            return new Bulk<Tcontext, Tclass>();
         }
-        public static Bulk<T> BulkInsertOnly()
+        public static Bulk<Tcontext, Tclass> BulkInsertOnly()
         {
-            Bulk<T> ret = new Bulk<T>();
+            Bulk<Tcontext, Tclass> ret = new Bulk<Tcontext, Tclass>();
             ret.InsertOnly = true;
             return ret;
         }
-        public void Process()
+        private void Process()
         {
             while (!Queue.IsEmpty)
             {
@@ -65,54 +90,63 @@ namespace com.ParttimeSoftware.SQL.BulkUpdate
                     Upload(BatchDrain);
                 }
                 Thread.Sleep(100);
+                if (Exit)
+                    return;
             }
             WaitDrain.Set();
         }
 
         private void Upload(int batch)
         {
-            List<T> tmplst = new List<T>();
-            for (int i = 0; i <= batch; i++)
-            {
-                T tmp;
-                if (Queue.TryDequeue(out tmp))
-                {
-                    tmplst.Add(tmp);
-                }
-            }
             if (InsertOnly)
             {
-                //Thread InsertThread = new Thread(new ParameterizedThreadStart(InsertToDB));
-                //InsertThread.Start(tmplst);
-                InsertToDB(tmplst);
+                Thread InsertThread = new Thread(new ParameterizedThreadStart(InsertToDB));
+                InsertThread.Start(batch);
             }
             else
-            {
-                UpdateDB(tmplst);
-            }
+                UpdateDB(batch);
         }
 
-        private void UpdateDB(List<T> tmplst)
+        private List<Tclass> GetUploadListfromQueue(int batch)
         {
+            List<Tclass> tmplst = new List<Tclass>();
+            for (int i = 0; i <= batch; i++)
+            {
+                Tclass tmp;
+                if (Queue.TryDequeue(out tmp))
+                    tmplst.Add(tmp);
+            }
+            return tmplst;
+        }
+
+        private void UpdateDB(int tmplst)
+        {
+            //Context db = new Context();
+            //var exits = db.Database.SqlQuery(typeof(int), string.Format("select count(*) from sys.types where name = {0} ", "utt_" + typeof(T).Name));
+
+
+
             throw new NotImplementedException();
         }
 
-        private void InsertToDB(object tmplst)
+        private void InsertToDB(object batch)
         {
-            List<T> lst = (List<T>)tmplst;
-            Context db = new Context();
+            Tcontext db = new Tcontext();
             SqlBulkCopy BulkCopy = new SqlBulkCopy(db.Database.Connection.ConnectionString);
-            BulkCopy.DestinationTableName = db.GetTableName<T>();
+            BulkCopy.DestinationTableName = db.GetTableName<Tclass>();
             BulkCopy.BatchSize = 100;
-            foreach (var item in typeof(T).GetProperties())
-            {
+            foreach (var item in typeof(Tclass).GetProperties())
                 BulkCopy.ColumnMappings.Add(new SqlBulkCopyColumnMapping(item.Name, item.Name));
-            }
-            BulkCopy.WriteToServer(GenericListDataReaderExtensions.GetDataReader<T>(lst));
-         }
-
+            BulkCopy.WriteToServer(GenericListDataReaderExtensions.GetDataReader<Tclass>(GetUploadListfromQueue((int)batch)));
+        }
+        public void Abort()
+        {
+            Exit = true;
+            Wait.Set();
+            WaitDrain.Set();
+        }
         #region IDisposable Support
-        private bool disposedValue = false; // To detect redundant calls
+        private bool disposedValue = false;
 
         protected virtual void Dispose(bool disposing)
         {
@@ -121,31 +155,17 @@ namespace com.ParttimeSoftware.SQL.BulkUpdate
                 if (disposing)
                 {
                     Complete();
-                    Exit = true;
                     if (UploadThread.ThreadState == ThreadState.Running)
                         UploadThread.Abort();
                 }
-
-                // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.
-                // TODO: set large fields to null.
-
+                Queue = null;
                 disposedValue = true;
             }
         }
 
-        // TODO: override a finalizer only if Dispose(bool disposing) above has code to free unmanaged resources. 
-        // ~Bulk() {
-        //   // Do not change this code. Put cleanup code in Dispose(bool disposing) above.
-        //   Dispose(false);
-        // }
-
-        // This code added to correctly implement the disposable pattern.
         public void Dispose()
         {
-            // Do not change this code. Put cleanup code in Dispose(bool disposing) above.
             Dispose(true);
-            // TODO: tell GC not to call its finalizer when the above finalizer is overridden.
-            // GC.SuppressFinalize(this);
         }
         #endregion
     }
